@@ -1,80 +1,137 @@
-import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-from pathlib import Path
+import seaborn as sns
+import streamlit as st
 
-st.set_page_config(page_title="E-Commerce Dashboard", page_icon="🛒", layout="wide")
+sns.set(style="dark")
 
-@st.cache_data
-def load_data():
-    main_df = pd.read_csv(Path(__file__).parent / "main_data.csv")
-    rfm_df = pd.read_csv(Path(__file__).parent / "rfm_data.csv")
-    main_df["order_purchase_timestamp"] = pd.to_datetime(main_df["order_purchase_timestamp"])
-    main_df["order_month"] = main_df["order_purchase_timestamp"].dt.to_period("M").astype(str)
-    return main_df, rfm_df
+# Helper function
+def create_monthly_revenue_df(df):
+    monthly_revenue_df = df.resample(rule="M", on="order_purchase_timestamp").agg({
+        "payment_value": "sum",
+        "order_id": "nunique"
+    })
 
-main_df, rfm_df = load_data()
+    monthly_revenue_df = monthly_revenue_df.reset_index()
+    monthly_revenue_df.rename(columns={
+        "order_purchase_timestamp": "month",
+        "payment_value": "revenue",
+        "order_id": "order_count"
+    }, inplace=True)
 
-st.title("🛒 E-Commerce Public Dataset Dashboard")
-st.caption("Dashboard analisis revenue, tren penjualan, dan segmentasi pelanggan berbasis RFM.")
+    return monthly_revenue_df
+
+
+def create_category_revenue_df(df):
+    category_revenue_df = (
+        df.drop_duplicates(subset=["order_id", "order_item_id", "product_id"])
+        .groupby("product_category_name_english")["price"]
+        .sum()
+        .sort_values(ascending=False)
+        .reset_index()
+    )
+
+    category_revenue_df.rename(columns={
+        "price": "revenue"
+    }, inplace=True)
+
+    return category_revenue_df
+
+# Load data
+all_df = pd.read_csv("all_data.csv")
+
+# Convert datetime
+all_df["order_purchase_timestamp"] = pd.to_datetime(all_df["order_purchase_timestamp"])
+
+# Sort data
+all_df.sort_values(by="order_purchase_timestamp", inplace=True)
+all_df.reset_index(drop=True, inplace=True)
+
+# Filter data
+min_date = all_df["order_purchase_timestamp"].min()
+max_date = all_df["order_purchase_timestamp"].max()
+
+with st.sidebar:
+    st.header("Filter Data")
+
+    start_date, end_date = st.date_input(
+        label="Rentang Waktu",
+        min_value=min_date.date(),
+        max_value=max_date.date(),
+        value=[min_date.date(), max_date.date()]
+    )
+
+main_df = all_df[
+    (all_df["order_purchase_timestamp"] >= pd.to_datetime(start_date)) &
+    (all_df["order_purchase_timestamp"] <= pd.to_datetime(end_date))
+]
+
+# Prepare dataframe
+monthly_revenue_df = create_monthly_revenue_df(main_df)
+category_revenue_df = create_category_revenue_df(main_df)
+
+# Dashboard title
+st.header("E-Commerce Public Dataset Dashboard :shopping_trolley:")
+
+# Metrics
+st.subheader("Ringkasan Data")
 
 col1, col2, col3 = st.columns(3)
-col1.metric("Total Revenue", f"{main_df['revenue'].sum():,.2f}")
-col2.metric("Jumlah Order", f"{main_df['order_id'].nunique():,}")
-col3.metric("Jumlah Customer", f"{main_df['customer_id'].nunique():,}")
 
-st.subheader("Top 10 Kategori Produk Berdasarkan Revenue")
-category_revenue = (
-    main_df.groupby("product_category_name_english")["revenue"]
-    .sum()
-    .sort_values(ascending=False)
-    .head(10)
+with col1:
+    total_orders = main_df["order_id"].nunique()
+    st.metric("Total Orders", value=f"{total_orders:,}")
+
+with col2:
+    total_revenue = main_df["payment_value"].sum()
+    st.metric("Total Revenue", value=f"R$ {total_revenue:,.2f}")
+
+with col3:
+    total_products = main_df["product_id"].nunique()
+    st.metric("Total Products", value=f"{total_products:,}")
+
+
+# Monthly revenue
+st.subheader("Tren Revenue Bulanan")
+
+fig, ax = plt.subplots(figsize=(16, 8))
+
+ax.plot(
+    monthly_revenue_df["month"],
+    monthly_revenue_df["revenue"],
+    marker="o",
+    linewidth=2,
+    color="#90CAF9"
 )
 
-fig, ax = plt.subplots(figsize=(12, 5))
-category_revenue.plot(kind="bar", ax=ax)
-ax.set_title("Top 10 Kategori Produk dengan Revenue Tertinggi")
-ax.set_xlabel("Kategori Produk")
-ax.set_ylabel("Total Revenue")
-ax.tick_params(axis="x", rotation=45)
-st.pyplot(fig)
-
-st.subheader("Tren Revenue Bulanan")
-monthly_revenue = main_df.groupby("order_month")["revenue"].sum().reset_index()
-
-fig, ax = plt.subplots(figsize=(12, 5))
-ax.plot(monthly_revenue["order_month"], monthly_revenue["revenue"], marker="o")
-ax.set_title("Tren Revenue Bulanan")
+ax.set_title("Tren Revenue Bulanan pada Transaksi E-Commerce", fontsize=20)
 ax.set_xlabel("Bulan")
 ax.set_ylabel("Total Revenue")
 ax.tick_params(axis="x", rotation=45)
-st.pyplot(fig)
-
-st.subheader("Distribusi Segmentasi Pelanggan")
-segment_counts = rfm_df["customer_segment"].value_counts().sort_values(ascending=False)
-
-fig, ax = plt.subplots(figsize=(10, 5))
-segment_counts.plot(kind="bar", ax=ax)
-ax.set_title("Distribusi Segmentasi Pelanggan")
-ax.set_xlabel("Segment")
-ax.set_ylabel("Jumlah Customer")
-ax.tick_params(axis="x", rotation=45)
-
-for i, value in enumerate(segment_counts):
-    ax.text(i, value, str(value), ha="center", va="bottom")
+ax.tick_params(axis="y")
 
 st.pyplot(fig)
 
-st.subheader("Insight")
-st.write("""
-- Kategori dengan revenue tertinggi adalah **health_beauty**, diikuti oleh **watches_gifts** dan **bed_bath_table**.
-- Revenue mengalami peningkatan signifikan sepanjang tahun 2017 hingga awal 2018.
-- Mayoritas pelanggan berada pada segment **Regular Customers**.
-- Segmentasi RFM membantu perusahaan menentukan strategi promosi yang lebih tepat.
-""")
 
-with st.expander("Lihat Data Utama"):
-    st.dataframe(main_df)
+# Category revenue
+st.subheader("Top 10 Kategori Produk Berdasarkan Revenue")
 
-with st.expander("Lihat Data RFM"):
-    st.dataframe(rfm_df)
+fig, ax = plt.subplots(figsize=(16, 8))
+
+colors = ["#90CAF9"] + ["#D3D3D3"] * 9
+
+sns.barplot(
+    x="revenue",
+    y="product_category_name_english",
+    data=category_revenue_df.head(10),
+    palette=colors,
+    ax=ax
+)
+
+ax.set_title("Top 10 Kategori Produk dengan Revenue Tertinggi", fontsize=20)
+ax.set_xlabel("Total Revenue")
+ax.set_ylabel("Kategori Produk")
+
+st.pyplot(fig)
+
+st.caption("Copyright © Dicoding 2025")
