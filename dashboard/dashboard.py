@@ -8,14 +8,18 @@ sns.set(style="dark")
 
 # Helper function
 def create_monthly_revenue_df(df):
-    monthly_revenue_df = df.resample(rule="M", on="order_purchase_timestamp").agg({
+    df = df.copy()
+    df["order_purchase_timestamp"] = pd.to_datetime(df["order_purchase_timestamp"], errors="coerce")
+    df = df.dropna(subset=["order_purchase_timestamp"])
+
+    df["month"] = df["order_purchase_timestamp"].dt.to_period("M").dt.to_timestamp()
+
+    monthly_revenue_df = df.groupby("month").agg({
         "payment_value": "sum",
         "order_id": "nunique"
-    })
+    }).reset_index()
 
-    monthly_revenue_df = monthly_revenue_df.reset_index()
     monthly_revenue_df.rename(columns={
-        "order_purchase_timestamp": "month",
         "payment_value": "revenue",
         "order_id": "order_count"
     }, inplace=True)
