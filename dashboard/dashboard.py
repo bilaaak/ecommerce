@@ -2,6 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import streamlit as st
+import os
 
 sns.set(style="dark")
 
@@ -38,7 +39,8 @@ def create_category_revenue_df(df):
     return category_revenue_df
 
 # Load data
-all_df = pd.read_csv("all_data.csv")
+BASE_DIR = os.path.dirname(__file__)
+all_df = pd.read_csv(os.path.join(BASE_DIR, "all_data.csv"))
 
 # Convert datetime
 all_df["order_purchase_timestamp"] = pd.to_datetime(all_df["order_purchase_timestamp"])
